@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Проверка платежа</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #e9ecef;
+        margin: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+      }
+      .status-container {
+        background: #fff;
+        padding: 40px;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        text-align: center;
+        width: 300px;
+      }
+      h1 {
+        color: #333;
+      }
+      p {
+        font-size: 18px;
+        margin: 20px 0;
+      }
+      .success {
+        color: #28a745;
+      }
+      .pending {
+        color: #ffc107;
+      }
+      .error {
+        color: red;
+      }
+      button {
+        padding: 10px;
+        margin-top: 2px;
+        width: 100%;
+        background-color: #28a745;
+        border: none;
+        color: #fff;
+        font-size: 16px;
+        border-radius: 5px;
+        cursor: pointer;
+      }
+      button:hover {
+        background-color: #218838;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="status-container">
+      <h1>Статус платежа</h1>
+      <p id="paymentStatus" class="pending">Ожидание оплаты...</p>
+      <p id="errorMessage" class="error"></p>
+      <div id="paymentButtonContainer"></div>
+      <button id="button" onclick="window.location.href = '/'">Главное меню</button>
+    </div>
+
+    <script>
+      // Функция для получения параметров из URL
+      function getQueryParam(param) {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.get(param);
+      }
+
+      const orderId = getQueryParam("order_id");
+      const paymentStatus = document.getElementById("paymentStatus");
+      const errorMessage = document.getElementById("errorMessage");
+      const buttonContainer = document.getElementById("paymentButtonContainer");
+
+      if (!orderId) {
+        paymentStatus.textContent = "Отсутствует идентификатор заказа";
+      } else {
+        async function checkPaymentStatus() {
+          try {
+            const response = await fetch(
+              `/api/payment?order_id=${encodeURIComponent(orderId)}`
+            );
+            if (!response.ok) {
+              throw new Error("Ошибка при проверке платежа");
+            }
+            const data = await response.json();
+
+            if (data.is_paid) {
+              paymentStatus.textContent = "Платеж " + getQueryParam("order_id") + " оплачен";
+              paymentStatus.className = "success";
+              // Удаляем кнопку оплаты, если она была добавлена ранее
+              const existingPayButton = document.getElementById("payButton");
+              if (existingPayButton) {
+                existingPayButton.remove();
+              }
+              // Добавляем кнопку "Отменить платеж", если её ещё нет
+              if (!document.getElementById("refundButton")) {
+                const refundButton = document.createElement("button");
+                refundButton.id = "refundButton";
+                refundButton.textContent = "Отменить платеж";
+                refundButton.addEventListener("click", async () => {
+                  try {
+                    const refundResponse = await fetch(
+                      `/api/payment/refund/${encodeURIComponent(orderId)}`,
+                      {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                        },
+                      }
+                    );
+                    if (!refundResponse.ok) {
+                      throw new Error("Ошибка при отмене платежа");
+                    }
+                    const refundData = await refundResponse.json();
+                    // Обработка успешного возврата платежа
+                    paymentStatus.textContent = "Платеж " + getQueryParam("order_id") + " отменён";
+                    paymentStatus.className = "error";
+                    refundButton.remove();
+                  } catch (error) {
+                    errorMessage.textContent = error.message;
+                  }
+                });
+                buttonContainer.appendChild(refundButton);
+              }
+              clearInterval(intervalId); // Прекращаем проверку при успешной оплате
+            } else {
+              paymentStatus.textContent = "Ожидание оплаты...";
+              paymentStatus.className = "pending";
+              // Если есть payment_link и кнопка ещё не создана, добавляем её
+              if (data.payment_link && !document.getElementById("payButton")) {
+                const payButton = document.createElement("button");
+                payButton.id = "payButton";
+                payButton.textContent = "Перейти к оплате";
+                payButton.addEventListener("click", () => {
+                  window.location.href = data.payment_link;
+                });
+                buttonContainer.appendChild(payButton);
+              }
+            }
+          } catch (error) {
+            errorMessage.textContent = error.message;
+          }
+        }
+
+        // Первоначальная проверка и затем каждые 5 секунд
+        checkPaymentStatus();
+        const intervalId = setInterval(checkPaymentStatus, 5000);
+      }
+    </script>
+  </body>
+</html>
